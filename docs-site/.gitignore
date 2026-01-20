@@ -1,0 +1,7 @@
+# Large data files (exceed GitHub 100MB limit)
+StandFord Machine Learning/Data/cat_classification_train.csv
+StandFord Machine Learning/Data/cat_classification_test.csv
+*.csv
+
+# Or be more specific:
+# StandFord Machine Learning/Data/*.csv
