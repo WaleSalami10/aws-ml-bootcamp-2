@@ -32,6 +32,8 @@ A comprehensive 5-layer deep neural network built from scratch using NumPy to cl
 |------|-------------|
 | `five_layer_nn.py` | Core neural network class with all methods |
 | `cat_classifier.py` | Main training script with visualizations |
+| `StandFord Machine Learning/Neural Networks/Notebook/five_layer_nn.ipynb` | Notebook that loads `five_layer_nn.py` |
+| `StandFord Machine Learning/Neural Networks/Notebook/cat_classifier.ipynb` | Notebook that loads `cat_classifier.py` |
 | `datasets/train_catvnoncat.h5` | Training data (209 images) |
 | `datasets/test_catvnoncat.h5` | Test data (50 images) |
 
@@ -801,6 +803,13 @@ pip install numpy h5py matplotlib
 python cat_classifier.py
 ```
 
+### Run Notebooks
+
+Open `StandFord Machine Learning/Neural Networks/Notebook/five_layer_nn.ipynb` or
+`StandFord Machine Learning/Neural Networks/Notebook/cat_classifier.ipynb`
+in Jupyter and run all cells. The first code cell loads the matching `.py`
+script so the notebook stays in sync.
+
 ### Expected Output
 
 ```
@@ -984,6 +993,8 @@ Epoch 2400 | Loss: 0.088741
 | `regularization_accuracy.png` | Bar chart of train vs test accuracy per regularization |
 | `optimizer_comparison.png` | Cost curves for GD vs momentum |
 | `learning_rate_comparison.png` | Cost curves for different learning rates |
+| `mini_batch_comparison.png` | Cost curves for different mini-batch sizes |
+| `learning_rate_decay_comparison.png` | Cost curves and LR schedules for decay |
 | `sample_predictions.png` | Grid of test images with predictions |
 | `normalization_comparison.png` | Cost curves for different normalization methods |
 
