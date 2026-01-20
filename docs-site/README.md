@@ -13,7 +13,28 @@ A modern, responsive documentation website showcasing machine learning implement
 
 ## Quick Start
 
-### Option 1: Open Locally
+### Option 1: Use Deploy Script (Recommended)
+```bash
+cd docs-site
+./deploy.sh
+# Visit http://localhost:8080 (or 8000 if 8080 is busy)
+```
+
+### Option 2: Simple Python Server
+```bash
+cd docs-site
+python3 -m http.server 8080
+# Visit http://localhost:8080
+```
+
+### Option 3: Alternative Server Script
+```bash
+cd docs-site
+./start-server.sh 8080
+# Or specify a different port: ./start-server.sh 3000
+```
+
+### Option 4: Open Directly (Limited - some features won't work)
 ```bash
 cd docs-site
 open index.html  # macOS
@@ -21,13 +42,6 @@ open index.html  # macOS
 start index.html  # Windows
 # or
 xdg-open index.html  # Linux
-```
-
-### Option 2: Use Python Server
-```bash
-cd docs-site
-python3 -m http.server 8000
-# Visit http://localhost:8000
 ```
 
 ### Option 3: Use VS Code Live Server
