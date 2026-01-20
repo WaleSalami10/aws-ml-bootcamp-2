@@ -9,6 +9,15 @@ class DocumentationSite {
     }
 
     init() {
+        // Check if required libraries are loaded
+        if (typeof marked === 'undefined') {
+            console.error('Marked.js not loaded! Check if the CDN script is included in index.html');
+            this.showError('Marked.js library failed to load. Please check your internet connection and refresh the page.');
+            return;
+        }
+        
+        console.log('Marked.js loaded successfully');
+        
         // Configure MathJax
         window.MathJax = {
             tex: {
@@ -34,6 +43,8 @@ class DocumentationSite {
 
         // Add mobile menu toggle
         this.setupMobileMenu();
+        
+        console.log('Documentation site initialized');
     }
 
     async loadPage(pageName, pushState = true) {
@@ -47,26 +58,44 @@ class DocumentationSite {
             // Fetch markdown content
             // Use relative path - works for both local and GitHub Pages
             const pagePath = `pages/${pageName}.md`;
+            console.log(`Loading page: ${pagePath}`);
+            
             const response = await fetch(pagePath);
             if (!response.ok) {
-                throw new Error(`Failed to load page: ${response.status} - ${pagePath}`);
+                throw new Error(`Failed to load page: ${response.status} ${response.statusText} - ${pagePath}`);
             }
             
             const markdown = await response.text();
+            if (!markdown || markdown.trim().length === 0) {
+                throw new Error(`Page ${pageName} is empty`);
+            }
+            
+            console.log(`Successfully loaded ${pageName}, processing markdown...`);
             return this.processMarkdown(markdown, pageName, pushState);
             
         } catch (error) {
             console.error('Error loading page:', error);
-            this.showError(`Failed to load page: ${pageName}`);
+            console.error('Page name:', pageName);
+            console.error('Error details:', error.message, error.stack);
+            this.showError(`Failed to load page: ${pageName}<br><small>${error.message}</small>`);
         }
     }
 
     processMarkdown(markdown, pageName, pushState) {
-        // Convert markdown to HTML
-        const html = marked.parse(markdown);
-        
-        // Update content
-        this.contentElement.innerHTML = html;
+        try {
+            // Convert markdown to HTML
+            if (typeof marked === 'undefined') {
+                throw new Error('Marked.js library not loaded');
+            }
+            
+            const html = marked.parse(markdown);
+            
+            if (!html || html.trim().length === 0) {
+                throw new Error('Markdown parsing resulted in empty HTML');
+            }
+            
+            // Update content
+            this.contentElement.innerHTML = html;
         
         // Process math equations
         if (window.MathJax) {
@@ -102,10 +131,11 @@ class DocumentationSite {
             this.setupSearch();
             this.searchInitialized = true;
         }
-            
+        
+        console.log(`Page ${pageName} loaded successfully`);
         } catch (error) {
-            console.error('Error loading page:', error);
-            this.showError(`Failed to load page: ${pageName}`);
+            console.error('Error processing markdown:', error);
+            this.showError(`Error processing page: ${pageName}<br><small>${error.message}</small>`);
         }
     }
 
