@@ -1,0 +1,5 @@
+Unsupervised learning is a technique of teaching our computer to learn from a data without a label. Meaning the data doesn't have any data to learn from.
+Unsupervised learning is used to find patterns in the data. The most common unsupervised learning algorithms are clustering and dimensionality reduction.
+Clustering is a technique of grouping similar data points together. The most common clustering algorithms are K-means and hierarchical clustering. The task of the clustering algorithm is to find the best way to group the data points together. The data comes with only input x and no output y.
+
+![alt text](images/unsupervised_clustering_chart.png)

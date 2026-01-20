@@ -1,0 +1,71 @@
+Week 1–2: ML Foundations + AWS AI Overview
+Topics:
+Supervised vs. unsupervised learning
+Classification, regression, clustering basics
+Evaluation metrics (accuracy, precision, recall, F1)
+Overview of AWS AI services (Rekognition, Comprehend, Translate, Lex)
+Resources:
+AWS Ramp-Up Guide: ML (PDF)
+Coursera: Fundamentals of ML & AI by AWS
+Assignment:
+Use AWS Rekognition to analyze an image for objects, faces, and labels.
+Use AWS Comprehend to analyze sentiment in a text dataset.
+Week 3–4: Data Prep + AWS SageMaker Basics
+Topics:
+Data preprocessing for ML (missing values, normalization)
+AWS SageMaker introduction
+Training & deploying a simple ML model in SageMaker
+Resources:
+AWS Docs: SageMaker Getting Started
+Course: Machine Learning on AWS (Coursera)
+Assignment:
+Import a CSV dataset into SageMaker.
+Train a logistic regression classifier.
+Deploy the model as an endpoint & run predictions.
+Week 5–6: Deep Dive into SageMaker + Hands-On Projects
+Topics:
+Training with built-in algorithms (XGBoost, Linear Learner)
+Hyperparameter tuning
+Using SageMaker Studio for workflows
+Resources:
+AWS Workshop: Build, Train, and Deploy Models with SageMaker
+Assignment:
+Train an image classifier (e.g., CIFAR-10 dataset) using SageMaker.
+Deploy the model & test inference via API.
+Week 7–8: NLP + AWS AI Services
+Topics:
+Natural Language Processing (NLP) basics
+Sentiment analysis, topic modeling
+Using AWS Comprehend + Lex
+Resources:
+AWS Docs: Comprehend, Lex
+Assignment:
+Build a chatbot using AWS Lex that integrates with Comprehend.
+Add sentiment analysis and auto-responses.
+Week 9–10: Generative AI + Hugging Face on AWS
+Topics:
+Generative AI basics
+Hugging Face integration with SageMaker
+Amazon Bedrock for large language models (LLMs)
+Resources:
+AWS: Generative AI Learning Path
+Hugging Face on SageMaker Docs
+Assignment:
+Fine-tune a Hugging Face transformer (e.g., BERT) on SageMaker.
+Deploy as an API endpoint for text summarization or Q&A.
+Week 11–12: MLOps + Capstone + Certification Prep
+Topics:
+MLOps concepts (CI/CD for ML, monitoring models)
+SageMaker Pipelines for automation
+AWS ML Specialty exam prep
+Resources:
+AWS Whitepaper: MLOps on AWS
+AWS Certification: ML Specialty
+Assignment (Capstone):
+Build an end-to-end ML pipeline:
+Data prep with Glue
+Model training with SageMaker
+Deploy endpoint
+Monitor predictions with CloudWatch
+Document the project as a portfolio piece.
+✅ By Week 12, you’ll be ready to attempt AWS Certified Machine Learning – Specialty and have multiple AWS ML projects in your portfolio.
