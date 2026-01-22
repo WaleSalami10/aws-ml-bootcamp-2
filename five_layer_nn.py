@@ -11,7 +11,8 @@ class FiveLayerNN:
     def __init__(self, layer_dims, learning_rate=0.01, initialization='he',
                  lambd=0.0, keep_prob=1.0, optimizer='gd', beta=0.0,
                  beta1=0.9, beta2=0.999, epsilon=1e-8,
-                 decay_rate=0.0, time_interval=1000):
+                 decay_rate=0.0, time_interval=1000, use_batch_norm=False,
+                 bn_momentum=0.9):
         """
         Initialize the neural network.
 
@@ -29,6 +30,8 @@ class FiveLayerNN:
             epsilon: small constant for numerical stability (Adam/RMSprop), default 1e-8
             decay_rate: learning rate decay rate (0 = no decay)
             time_interval: number of epochs between learning rate updates (for scheduled decay)
+            use_batch_norm: whether to use batch normalization (default False)
+            bn_momentum: momentum for running mean/variance in batch norm (default 0.9)
         """
         self.layer_dims = layer_dims
         self.learning_rate = learning_rate
@@ -43,6 +46,8 @@ class FiveLayerNN:
         self.epsilon = epsilon
         self.decay_rate = decay_rate
         self.time_interval = time_interval
+        self.use_batch_norm = use_batch_norm
+        self.bn_momentum = bn_momentum
         self.t = 0  # Adam iteration counter for bias correction
         self.parameters = {}
         self.cache = {}
@@ -50,9 +55,15 @@ class FiveLayerNN:
         self.dropout_masks = {}
         self.velocity = {}  # First moment (momentum/Adam)
         self.squared = {}   # Second moment (RMSprop/Adam)
+        self.bn_params = {}  # Batch normalization parameters (gamma, beta)
+        self.bn_cache = {}   # Batch norm cache for backprop
+        self.running_mean = {}  # Running mean for inference
+        self.running_var = {}   # Running variance for inference
 
         self._initialize_parameters()
         self._initialize_optimizer()
+        if self.use_batch_norm:
+            self._initialize_batch_norm()
 
     # ==================== Normalization Methods ====================
 
@@ -207,6 +218,133 @@ class FiveLayerNN:
             self.squared[f'dW{l}'] = np.zeros_like(self.parameters[f'W{l}'])
             self.squared[f'db{l}'] = np.zeros_like(self.parameters[f'b{l}'])
 
+    def _initialize_batch_norm(self):
+        """
+        Initialize batch normalization parameters for hidden layers.
+
+        Batch Normalization normalizes the pre-activation values (Z) to have
+        zero mean and unit variance, then scales and shifts using learnable
+        parameters gamma and beta.
+
+        For each hidden layer l (layers 1 to 4, not output layer):
+        - gamma[l]: Scale parameter, initialized to 1
+        - beta[l]: Shift parameter, initialized to 0
+        - running_mean[l]: Running mean for inference, initialized to 0
+        - running_var[l]: Running variance for inference, initialized to 1
+        """
+        # Initialize batch norm for hidden layers only (not output layer)
+        for l in range(1, 5):
+            n_l = self.layer_dims[l]
+            # Learnable parameters
+            self.bn_params[f'gamma{l}'] = np.ones((n_l, 1))
+            self.bn_params[f'beta{l}'] = np.zeros((n_l, 1))
+            # Running statistics for inference
+            self.running_mean[f'mean{l}'] = np.zeros((n_l, 1))
+            self.running_var[f'var{l}'] = np.ones((n_l, 1))
+            # Velocity for optimizer (if using momentum/Adam)
+            self.velocity[f'dgamma{l}'] = np.zeros((n_l, 1))
+            self.velocity[f'dbeta{l}'] = np.zeros((n_l, 1))
+            self.squared[f'dgamma{l}'] = np.zeros((n_l, 1))
+            self.squared[f'dbeta{l}'] = np.zeros((n_l, 1))
+
+    # ==================== Batch Normalization ====================
+
+    def batch_norm_forward(self, Z, l, training=True):
+        """
+        Apply batch normalization to pre-activation values Z.
+
+        During Training:
+            1. Compute batch mean and variance
+            2. Normalize: Z_norm = (Z - mean) / sqrt(var + epsilon)
+            3. Scale and shift: Z_out = gamma * Z_norm + beta
+            4. Update running mean and variance for inference
+
+        During Inference:
+            Use running mean and variance instead of batch statistics.
+
+        Args:
+            Z: Pre-activation values, shape (n_l, m)
+            l: Layer number
+            training: Boolean, True for training, False for inference
+
+        Returns:
+            Z_bn: Batch-normalized values
+        """
+        gamma = self.bn_params[f'gamma{l}']
+        beta = self.bn_params[f'beta{l}']
+
+        if training:
+            # Compute batch mean and variance
+            mu = np.mean(Z, axis=1, keepdims=True)
+            var = np.var(Z, axis=1, keepdims=True)
+
+            # Normalize
+            Z_norm = (Z - mu) / np.sqrt(var + self.epsilon)
+
+            # Scale and shift
+            Z_bn = gamma * Z_norm + beta
+
+            # Update running statistics (exponential moving average)
+            self.running_mean[f'mean{l}'] = (self.bn_momentum * self.running_mean[f'mean{l}']
+                                              + (1 - self.bn_momentum) * mu)
+            self.running_var[f'var{l}'] = (self.bn_momentum * self.running_var[f'var{l}']
+                                            + (1 - self.bn_momentum) * var)
+
+            # Cache values for backprop
+            self.bn_cache[f'Z{l}'] = Z
+            self.bn_cache[f'Z_norm{l}'] = Z_norm
+            self.bn_cache[f'mu{l}'] = mu
+            self.bn_cache[f'var{l}'] = var
+        else:
+            # Use running statistics for inference
+            Z_norm = (Z - self.running_mean[f'mean{l}']) / np.sqrt(self.running_var[f'var{l}'] + self.epsilon)
+            Z_bn = gamma * Z_norm + beta
+
+        return Z_bn
+
+    def batch_norm_backward(self, dZ_bn, l):
+        """
+        Backward pass for batch normalization.
+
+        Computes gradients with respect to Z, gamma, and beta.
+
+        Args:
+            dZ_bn: Gradient of loss w.r.t. batch-normalized output
+            l: Layer number
+
+        Returns:
+            dZ: Gradient of loss w.r.t. pre-normalization input
+        """
+        m = dZ_bn.shape[1]
+        gamma = self.bn_params[f'gamma{l}']
+        Z_norm = self.bn_cache[f'Z_norm{l}']
+        mu = self.bn_cache[f'mu{l}']
+        var = self.bn_cache[f'var{l}']
+        Z = self.bn_cache[f'Z{l}']
+
+        # Gradients for gamma and beta
+        dgamma = np.sum(dZ_bn * Z_norm, axis=1, keepdims=True)
+        dbeta = np.sum(dZ_bn, axis=1, keepdims=True)
+
+        # Gradient for normalized Z
+        dZ_norm = dZ_bn * gamma
+
+        # Gradient for variance
+        std_inv = 1.0 / np.sqrt(var + self.epsilon)
+        dvar = np.sum(dZ_norm * (Z - mu) * (-0.5) * (var + self.epsilon) ** (-1.5), axis=1, keepdims=True)
+
+        # Gradient for mean
+        dmu = np.sum(dZ_norm * (-std_inv), axis=1, keepdims=True) + dvar * np.sum(-2 * (Z - mu), axis=1, keepdims=True) / m
+
+        # Gradient for Z (pre-normalization input)
+        dZ = dZ_norm * std_inv + dvar * 2 * (Z - mu) / m + dmu / m
+
+        # Store gradients
+        self.gradients[f'dgamma{l}'] = dgamma
+        self.gradients[f'dbeta{l}'] = dbeta
+
+        return dZ
+
     # ==================== Activation Functions ====================
 
     def relu(self, Z):
@@ -232,22 +370,37 @@ class FiveLayerNN:
         """
         Forward pass through all 5 layers.
 
-        Layers 1-4: ReLU activation (with optional dropout)
+        Layers 1-4: Linear -> [BatchNorm] -> ReLU -> [Dropout]
         Layer 5: Sigmoid activation (binary) or Softmax (multiclass)
+
+        With Batch Normalization:
+            Z = W * A_prev + b
+            Z_bn = BatchNorm(Z)   # Normalize, scale, shift
+            A = ReLU(Z_bn)
+
+        Without Batch Normalization:
+            Z = W * A_prev + b
+            A = ReLU(Z)
 
         Args:
             X: Input data
-            training: If True, apply dropout. If False (inference), no dropout.
+            training: If True, apply dropout and use batch statistics.
+                     If False (inference), no dropout and use running statistics.
         """
         self.cache['A0'] = X
         A = X
 
-        # Layers 1-4: Linear -> ReLU -> Dropout (optional)
+        # Layers 1-4: Linear -> [BatchNorm] -> ReLU -> Dropout (optional)
         for l in range(1, 5):
             W = self.parameters[f'W{l}']
             b = self.parameters[f'b{l}']
 
             Z = np.dot(W, A) + b
+
+            # Apply batch normalization if enabled
+            if self.use_batch_norm:
+                Z = self.batch_norm_forward(Z, l, training=training)
+
             A = self.relu(Z)
 
             # Apply dropout during training (not on output layer)
@@ -261,7 +414,7 @@ class FiveLayerNN:
             self.cache[f'Z{l}'] = Z
             self.cache[f'A{l}'] = A
 
-        # Layer 5: Linear -> Sigmoid (output) - no dropout on output layer
+        # Layer 5: Linear -> Sigmoid (output) - no batch norm or dropout on output layer
         W5 = self.parameters['W5']
         b5 = self.parameters['b5']
 
@@ -278,17 +431,18 @@ class FiveLayerNN:
     def backward_propagation(self, Y):
         """
         Backward pass computing dZ, dW, db for all 5 layers.
-        Supports L2 regularization and dropout.
+        Supports L2 regularization, dropout, and batch normalization.
 
         Layer 5 (Output):
             dZ⁵ = A⁵ - Y
             dW⁵ = (1/m) * dZ⁵ · (A⁴)ᵀ + (λ/m) * W⁵
             db⁵ = (1/m) * Σ dZ⁵
 
-        Layers 4-1:
+        Layers 4-1 (with BatchNorm):
             dAˡ = (Wˡ⁺¹)ᵀ · dZˡ⁺¹
             dAˡ = dAˡ * Dˡ / keep_prob  (if dropout)
-            dZˡ = dAˡ * g'ˡ(Zˡ)
+            dZ_bnˡ = dAˡ * g'ˡ(Zˡ)      # gradient through activation
+            dZˡ = BatchNorm_backward(dZ_bnˡ)  (if batch norm)
             dWˡ = (1/m) * dZˡ · (Aˡ⁻¹)ᵀ + (λ/m) * Wˡ
             dbˡ = (1/m) * Σ dZˡ
         """
@@ -313,6 +467,9 @@ class FiveLayerNN:
             dA4 = dA4 * self.dropout_masks['D4']
             dA4 = dA4 / self.keep_prob
         dZ4 = dA4 * self.relu_derivative(self.cache['Z4'])
+        # Apply batch norm backward if enabled
+        if self.use_batch_norm:
+            dZ4 = self.batch_norm_backward(dZ4, 4)
         dW4 = (1/m) * np.dot(dZ4, self.cache['A3'].T)
         if self.lambd > 0:
             dW4 += (self.lambd / m) * self.parameters['W4']
@@ -328,6 +485,8 @@ class FiveLayerNN:
             dA3 = dA3 * self.dropout_masks['D3']
             dA3 = dA3 / self.keep_prob
         dZ3 = dA3 * self.relu_derivative(self.cache['Z3'])
+        if self.use_batch_norm:
+            dZ3 = self.batch_norm_backward(dZ3, 3)
         dW3 = (1/m) * np.dot(dZ3, self.cache['A2'].T)
         if self.lambd > 0:
             dW3 += (self.lambd / m) * self.parameters['W3']
@@ -343,6 +502,8 @@ class FiveLayerNN:
             dA2 = dA2 * self.dropout_masks['D2']
             dA2 = dA2 / self.keep_prob
         dZ2 = dA2 * self.relu_derivative(self.cache['Z2'])
+        if self.use_batch_norm:
+            dZ2 = self.batch_norm_backward(dZ2, 2)
         dW2 = (1/m) * np.dot(dZ2, self.cache['A1'].T)
         if self.lambd > 0:
             dW2 += (self.lambd / m) * self.parameters['W2']
@@ -358,6 +519,8 @@ class FiveLayerNN:
             dA1 = dA1 * self.dropout_masks['D1']
             dA1 = dA1 / self.keep_prob
         dZ1 = dA1 * self.relu_derivative(self.cache['Z1'])
+        if self.use_batch_norm:
+            dZ1 = self.batch_norm_backward(dZ1, 1)
         dW1 = (1/m) * np.dot(dZ1, self.cache['A0'].T)
         if self.lambd > 0:
             dW1 += (self.lambd / m) * self.parameters['W1']
@@ -445,6 +608,55 @@ class FiveLayerNN:
 
             else:
                 raise ValueError(f"Unknown optimizer: {self.optimizer}. Use 'gd', 'momentum', 'rmsprop', or 'adam'")
+
+        # Update batch normalization parameters if enabled
+        if self.use_batch_norm:
+            self._update_batch_norm_parameters()
+
+    def _update_batch_norm_parameters(self):
+        """
+        Update batch normalization parameters (gamma, beta) using the selected optimizer.
+        """
+        for l in range(1, 5):
+            dgamma = self.gradients[f'dgamma{l}']
+            dbeta = self.gradients[f'dbeta{l}']
+
+            if self.optimizer == 'gd':
+                self.bn_params[f'gamma{l}'] -= self.learning_rate * dgamma
+                self.bn_params[f'beta{l}'] -= self.learning_rate * dbeta
+
+            elif self.optimizer == 'momentum':
+                self.velocity[f'dgamma{l}'] = self.beta * self.velocity[f'dgamma{l}'] + (1 - self.beta) * dgamma
+                self.velocity[f'dbeta{l}'] = self.beta * self.velocity[f'dbeta{l}'] + (1 - self.beta) * dbeta
+
+                self.bn_params[f'gamma{l}'] -= self.learning_rate * self.velocity[f'dgamma{l}']
+                self.bn_params[f'beta{l}'] -= self.learning_rate * self.velocity[f'dbeta{l}']
+
+            elif self.optimizer == 'rmsprop':
+                self.squared[f'dgamma{l}'] = self.beta2 * self.squared[f'dgamma{l}'] + (1 - self.beta2) * np.square(dgamma)
+                self.squared[f'dbeta{l}'] = self.beta2 * self.squared[f'dbeta{l}'] + (1 - self.beta2) * np.square(dbeta)
+
+                self.bn_params[f'gamma{l}'] -= self.learning_rate * dgamma / (np.sqrt(self.squared[f'dgamma{l}']) + self.epsilon)
+                self.bn_params[f'beta{l}'] -= self.learning_rate * dbeta / (np.sqrt(self.squared[f'dbeta{l}']) + self.epsilon)
+
+            elif self.optimizer == 'adam':
+                # Update first moment
+                self.velocity[f'dgamma{l}'] = self.beta1 * self.velocity[f'dgamma{l}'] + (1 - self.beta1) * dgamma
+                self.velocity[f'dbeta{l}'] = self.beta1 * self.velocity[f'dbeta{l}'] + (1 - self.beta1) * dbeta
+
+                # Update second moment
+                self.squared[f'dgamma{l}'] = self.beta2 * self.squared[f'dgamma{l}'] + (1 - self.beta2) * np.square(dgamma)
+                self.squared[f'dbeta{l}'] = self.beta2 * self.squared[f'dbeta{l}'] + (1 - self.beta2) * np.square(dbeta)
+
+                # Bias correction
+                v_gamma_corrected = self.velocity[f'dgamma{l}'] / (1 - self.beta1 ** self.t)
+                v_beta_corrected = self.velocity[f'dbeta{l}'] / (1 - self.beta1 ** self.t)
+                s_gamma_corrected = self.squared[f'dgamma{l}'] / (1 - self.beta2 ** self.t)
+                s_beta_corrected = self.squared[f'dbeta{l}'] / (1 - self.beta2 ** self.t)
+
+                # Update parameters
+                self.bn_params[f'gamma{l}'] -= self.learning_rate * v_gamma_corrected / (np.sqrt(s_gamma_corrected) + self.epsilon)
+                self.bn_params[f'beta{l}'] -= self.learning_rate * v_beta_corrected / (np.sqrt(s_beta_corrected) + self.epsilon)
 
     # ==================== Learning Rate Decay ====================
 
@@ -648,6 +860,8 @@ class FiveLayerNN:
     def get_config(self):
         """Return model configuration as a string."""
         config = f"init={self.initialization}"
+        if self.use_batch_norm:
+            config += f", batch_norm=True(momentum={self.bn_momentum})"
         if self.lambd > 0:
             config += f", L2={self.lambd}"
         if self.keep_prob < 1.0:
@@ -1052,6 +1266,63 @@ def compare_mini_batch_sizes(X_train, Y_train, X_test, Y_test, layer_dims, epoch
     return results
 
 
+def compare_batch_normalization(X_train, Y_train, X_test, Y_test, layer_dims, epochs=1500):
+    """Compare models with and without batch normalization."""
+    print("\n" + "=" * 70)
+    print("BATCH NORMALIZATION COMPARISON")
+    print("=" * 70)
+
+    configs = [
+        {'name': 'No BatchNorm', 'use_batch_norm': False},
+        {'name': 'With BatchNorm', 'use_batch_norm': True},
+        {'name': 'BatchNorm + L2', 'use_batch_norm': True, 'lambd': 0.1},
+        {'name': 'BatchNorm + Dropout', 'use_batch_norm': True, 'keep_prob': 0.8},
+        {'name': 'BatchNorm + Adam', 'use_batch_norm': True, 'optimizer': 'adam', 'lr': 0.01},
+    ]
+
+    results = {}
+
+    for cfg in configs:
+        print(f"\n--- Training with {cfg['name']} ---")
+        np.random.seed(42)
+
+        nn = FiveLayerNN(
+            layer_dims,
+            learning_rate=cfg.get('lr', 0.1),
+            initialization='he',
+            use_batch_norm=cfg.get('use_batch_norm', False),
+            lambd=cfg.get('lambd', 0.0),
+            keep_prob=cfg.get('keep_prob', 1.0),
+            optimizer=cfg.get('optimizer', 'gd')
+        )
+        losses = nn.train(X_train, Y_train, epochs=epochs, print_loss=False)
+
+        train_acc = nn.accuracy(X_train, Y_train)
+        test_acc = nn.accuracy(X_test, Y_test)
+
+        results[cfg['name']] = {
+            'train_acc': train_acc,
+            'test_acc': test_acc,
+            'final_loss': losses[-1],
+            'losses': losses,
+            'config': cfg
+        }
+
+        print(f"  Final Loss: {losses[-1]:.6f}")
+        print(f"  Train Accuracy: {train_acc:.2f}%")
+        print(f"  Test Accuracy: {test_acc:.2f}%")
+
+    print("\n" + "-" * 70)
+    print("BATCH NORMALIZATION SUMMARY")
+    print("-" * 70)
+    print(f"{'Configuration':<25} {'Train Acc':<12} {'Test Acc':<12} {'Final Loss':<12}")
+    print("-" * 70)
+    for name, res in results.items():
+        print(f"{name:<25} {res['train_acc']:<12.2f} {res['test_acc']:<12.2f} {res['final_loss']:<12.6f}")
+
+    return results
+
+
 def compare_learning_rate_decay(X_train, Y_train, X_test, Y_test, layer_dims, epochs=2500):
     """Compare different learning rate decay strategies."""
     print("\n" + "=" * 70)
@@ -1159,6 +1430,9 @@ if __name__ == "__main__":
     # ============ Compare Mini-Batch Sizes ============
     batch_results = compare_mini_batch_sizes(X_train, Y_train, X_test, Y_test, layer_dims)
 
+    # ============ Compare Batch Normalization ============
+    bn_results = compare_batch_normalization(X_train, Y_train, X_test, Y_test, layer_dims)
+
     # ============ Compare Learning Rate Decay ============
     lr_decay_results = compare_learning_rate_decay(X_train, Y_train, X_test, Y_test, layer_dims)
 
@@ -1205,9 +1479,19 @@ if __name__ == "__main__":
     - Xavier: Good for tanh/sigmoid activations
     - He: Best for ReLU activations (used in this network)
 
+    BATCH NORMALIZATION:
+    - Normalizes activations within each mini-batch
+    - Reduces internal covariate shift
+    - Allows higher learning rates for faster training
+    - Acts as mild regularization (can reduce need for dropout)
+    - Formula: Z_norm = (Z - mean) / sqrt(var + epsilon)
+              Z_out = gamma * Z_norm + beta (learnable scale/shift)
+    - Use momentum (0.9) for running mean/variance during inference
+
     REGULARIZATION:
     - L2 (Weight Decay): Penalizes large weights, reduces overfitting
     - Dropout: Randomly drops neurons, prevents co-adaptation
+    - Batch Normalization: Provides implicit regularization
     - Combined: Often gives best results
 
     OPTIMIZATION ALGORITHMS:

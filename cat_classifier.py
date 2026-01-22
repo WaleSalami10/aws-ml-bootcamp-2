@@ -488,6 +488,63 @@ def plot_mini_batch_comparison(train_x, train_y, test_x, test_y, layer_dims, epo
     return results
 
 
+def plot_batch_norm_comparison(train_x, train_y, test_x, test_y, layer_dims, epochs=2500):
+    """
+    Train models with and without batch normalization and compare.
+    """
+    configs = [
+        {'name': 'No BatchNorm', 'use_batch_norm': False, 'lr': 0.0075},
+        {'name': 'With BatchNorm', 'use_batch_norm': True, 'lr': 0.0075},
+        {'name': 'BatchNorm (higher LR)', 'use_batch_norm': True, 'lr': 0.01},
+        {'name': 'BatchNorm + L2', 'use_batch_norm': True, 'lambd': 0.1, 'lr': 0.0075},
+        {'name': 'BatchNorm + Adam', 'use_batch_norm': True, 'optimizer': 'adam', 'lr': 0.001},
+    ]
+
+    results = {}
+
+    # Plot training curves
+    plt.figure(figsize=(12, 8))
+
+    for cfg in configs:
+        print(f"\n    Training with {cfg['name']}...")
+        np.random.seed(42)
+        nn = FiveLayerNN(
+            layer_dims,
+            learning_rate=cfg.get('lr', 0.0075),
+            initialization='he',
+            use_batch_norm=cfg.get('use_batch_norm', False),
+            lambd=cfg.get('lambd', 0.0),
+            keep_prob=cfg.get('keep_prob', 1.0),
+            optimizer=cfg.get('optimizer', 'gd')
+        )
+        losses = nn.train(train_x, train_y, epochs=epochs, print_loss=False)
+
+        train_acc = nn.accuracy(train_x, train_y)
+        test_acc = nn.accuracy(test_x, test_y)
+
+        results[cfg['name']] = {
+            'losses': losses,
+            'final_loss': losses[-1],
+            'train_acc': train_acc,
+            'test_acc': test_acc,
+            'model': nn,
+            'config': cfg
+        }
+
+        plt.plot(losses, label=f"{cfg['name']} (test: {test_acc:.1f}%)", linewidth=2)
+
+    plt.xlabel('Epochs', fontsize=12)
+    plt.ylabel('Cost', fontsize=12)
+    plt.title('Batch Normalization Comparison', fontsize=14)
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.savefig('batch_norm_comparison.png', dpi=150, bbox_inches='tight')
+    plt.show()
+    print("\n    Saved: batch_norm_comparison.png")
+
+    return results
+
+
 def plot_learning_rate_decay_comparison(train_x, train_y, test_x, test_y, layer_dims, epochs=2500):
     """
     Train models with different learning rate decay strategies and compare.
@@ -825,8 +882,18 @@ if __name__ == "__main__":
         test_acc = result['model'].accuracy(test_x, test_y)
         print(f"    lr = {lr:6.4f} | Final Loss: {result['final_loss']:.6f} | Test Accuracy: {test_acc:.2f}%")
 
-    # ============ Step 15: Learning Rate Decay Comparison ============
-    print("\n[15] Comparing different learning rate decay strategies...")
+    # ============ Step 15: Batch Normalization Comparison ============
+    print("\n[15] Comparing batch normalization configurations...")
+    bn_results = plot_batch_norm_comparison(train_x, train_y, test_x, test_y, layer_dims, epochs=2500)
+
+    print("\n    === BATCH NORMALIZATION COMPARISON RESULTS ===")
+    print(f"    {'Configuration':<25} {'Train Acc':<12} {'Test Acc':<12} {'Final Loss':<12}")
+    print("    " + "-" * 61)
+    for name, result in bn_results.items():
+        print(f"    {name:<25} {result['train_acc']:<12.2f} {result['test_acc']:<12.2f} {result['final_loss']:<12.6f}")
+
+    # ============ Step 16: Learning Rate Decay Comparison ============
+    print("\n[16] Comparing different learning rate decay strategies...")
     lr_decay_results = plot_learning_rate_decay_comparison(train_x, train_y, test_x, test_y, layer_dims, epochs=2500)
 
     print("\n    === LEARNING RATE DECAY COMPARISON RESULTS ===")
@@ -835,9 +902,9 @@ if __name__ == "__main__":
     for name, result in lr_decay_results.items():
         print(f"    {name:<25} {result['train_acc']:<12.2f} {result['test_acc']:<12.2f} {result['final_lr']:<12.6f} {result['final_loss']:<12.6f}")
 
-    # ============ Step 16: Sample Predictions (if real data) ============
+    # ============ Step 17: Sample Predictions (if real data) ============
     if has_real_data and test_x_orig is not None:
-        print("\n[16] Plotting sample predictions...")
+        print("\n[17] Plotting sample predictions...")
         plot_sample_predictions(test_x_orig, test_y, test_predictions, classes)
 
     # ============ Summary ============
@@ -856,6 +923,7 @@ if __name__ == "__main__":
     print("    - optimizer_comparison.png")
     print("    - mini_batch_comparison.png")
     print("    - learning_rate_comparison.png")
+    print("    - batch_norm_comparison.png")
     print("    - learning_rate_decay_comparison.png")
     if has_real_data:
         print("    - sample_predictions.png")
@@ -868,6 +936,8 @@ if __name__ == "__main__":
     print("    - Combining L2 + dropout often gives best generalization")
     print("    - Adam optimizer generally performs best")
     print("    - Mini-batch sizes of 32-64 offer good speed/stability balance")
+    print("    - Batch normalization enables higher learning rates and faster training")
+    print("    - Batch normalization provides implicit regularization")
     print("    - Learning rate decay helps fine-tune convergence in later epochs")
     print("    - Scheduled decay (step decay) gives more control over when LR reduces")
     print("\n" + "=" * 60)
